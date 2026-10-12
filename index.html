@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-  
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -119,6 +118,7 @@
   <div class="card" id="resultCard" style="display:none">
     <div class="tabs">
       <div class="tab active" data-tab="diff">差异订单</div>
+      <div class="tab" data-tab="amount">金额差异订单</div>
       <div class="tab" data-tab="all">全部对比</div>
       <span style="margin-left:auto;align-self:center;color:#666" id="countInfo"></span>
     </div>
@@ -130,7 +130,6 @@
 (function(){
   "use strict";
 
-  // 检查 xlsx.full.min.js 是否加载成功
   if(typeof XLSX === 'undefined'){
     document.getElementById('libErr').style.display = 'block';
     document.getElementById('runBtn').disabled = true;
@@ -140,6 +139,7 @@
   const $ = id => document.getElementById(id);
   let allRows = [];
   let diffRows = [];
+  let amountDiffRows = [];
   let curTab = 'diff';
 
   /* ---------- 工具函数 ---------- */
@@ -400,7 +400,7 @@
     tbody.appendChild(frag);
     $('countInfo').textContent = curTab === 'diff'
       ? `差异 ${rows.length} 行`
-      : `共 ${rows.length} 行`;
+      : (curTab === 'amount' ? `金额差异 ${rows.length} 行` : `共 ${rows.length} 行`);
   }
 
   function renderStats(){
@@ -422,6 +422,7 @@
       <div class="stat"><div class="k">第一表总佣金合计</div><div class="v">${fmtMoney(aTot)}</div></div>
       <div class="stat"><div class="k">第二表总佣金合计</div><div class="v">${fmtMoney(bTot)}</div></div>
       <div class="stat"><div class="k">差异订单行数</div><div class="v">${diffRows.length}</div></div>
+      <div class="stat"><div class="k">金额差异订单行数</div><div class="v">${amountDiffRows.length}</div></div>
     `;
     $('statCard').style.display = 'block';
   }
@@ -490,6 +491,7 @@
         return String(x.orderId).localeCompare(String(y.orderId));
       });
       diffRows = allRows.filter(r => r.reasons);
+      amountDiffRows = allRows.filter(r => Math.abs(r.amtDiff) > 0.01); // 金额差异订单
 
       curTab = 'diff';
       document.querySelectorAll('.tab').forEach(t =>
@@ -518,7 +520,13 @@
       curTab = t.dataset.tab;
       document.querySelectorAll('.tab').forEach(x =>
         x.classList.toggle('active', x.dataset.tab === curTab));
-      renderTable(curTab === 'diff' ? diffRows : allRows);
+      if(curTab === 'diff'){
+        renderTable(diffRows);
+      } else if(curTab === 'amount'){
+        renderTable(amountDiffRows);
+      } else {
+        renderTable(allRows);
+      }
     });
   });
 
@@ -544,9 +552,16 @@
   }
 
   $('expDiff').addEventListener('click', () => {
-    if(!diffRows.length){ showMsg('没有差异行可导出。'); return; }
-    downloadCSV('订单佣金差异对比_差异订单.csv', HEADERS, diffRows.map(rowToArr));
+    let rowsToExport = diffRows;
+    let filename = '订单佣金差异对比_差异订单.csv';
+    if(curTab === 'amount'){
+      rowsToExport = amountDiffRows;
+      filename = '订单佣金差异对比_金额差异订单.csv';
+    }
+    if(!rowsToExport.length){ showMsg('没有可导出的数据。'); return; }
+    downloadCSV(filename, HEADERS, rowsToExport.map(rowToArr));
   });
+  
   $('expAll').addEventListener('click', () => {
     if(!allRows.length){ showMsg('没有数据可导出。'); return; }
     downloadCSV('订单佣金差异对比_汇总对比.csv', HEADERS, allRows.map(rowToArr));
