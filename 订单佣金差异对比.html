@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>订单佣金差异对比</title>
+<script src="./xlsx.full.min.js"></script>
+<style>
+  :root{--bg:#f5f6f8;--card:#fff;--line:#e3e6ea;--txt:#222;--muted:#666;--pri:#2563eb;--bad:#dc2626;--good:#16a34a;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--txt);font-size:14px}
+  .wrap{max-width:1600px;margin:0 auto;padding:20px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .col{flex:1;min-width:300px}
+  label{display:block;font-weight:600;margin-bottom:6px}
+  input[type=file]{width:100%;padding:8px;border:1px dashed #bbb;border-radius:8px;background:#fafbfc}
+  input[type=number]{padding:8px 10px;border:1px solid #ccc;border-radius:8px;width:110px;font-size:14px}
+  select{padding:8px 10px;border:1px solid #ccc;border-radius:8px;font-size:14px;background:#fff;max-width:100%}
+  .rateRow{display:flex;gap:24px;flex-wrap:wrap;margin-top:14px;align-items:center}
+  .rateItem{display:flex;align-items:center;gap:8px}
+  .rateItem label{margin:0;font-weight:600}
+  .hint{color:var(--muted);font-size:12px}
+  button{background:var(--pri);color:#fff;border:0;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer;margin-right:8px}
+  button:disabled{background:#9db4e0;cursor:not-allowed}
+  button.sec{background:#fff;color:var(--pri);border:1px solid var(--pri)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+  .stat{background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:12px}
+  .stat .k{color:var(--muted);font-size:12px}
+  .stat .v{font-size:18px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+  .neg{color:var(--bad)} .pos{color:var(--good)}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;white-space:nowrap}
+  th{background:#f1f5f9;position:sticky;top:0;z-index:1}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .scroll{max-height:660px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .tabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .tab{padding:8px 16px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;font-size:14px}
+  .tab.active{background:var(--pri);color:#fff;border-color:var(--pri)}
+  .msg{padding:10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;margin-top:12px;display:none;white-space:pre-wrap}
+  .note{font-size:12px;color:var(--muted);line-height:1.7}
+  .libErr{padding:12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;margin-top:12px;display:none;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>订单佣金差异对比</h1>
+  <div class="sub">匹配键：订单ID + 规格ID ｜ 支持差额模式与统一结算模式 ｜ 离线版</div>
+
+  <div class="libErr" id="libErr">
+    未检测到 xlsx.full.min.js。请确认该文件与本 HTML 放在同一个文件夹中，然后刷新页面。
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="col">
+        <label>表一：结算订单明细（订单信息）</label>
+        <input type="file" id="file1" accept=".xlsx,.xls">
+      </div>
+      <div class="col">
+        <label>表二：订单明细（运营导出订单）</label>
+        <input type="file" id="file2" accept=".xlsx,.xls">
+      </div>
+    </div>
+
+    <div class="rateRow">
+      <div class="rateItem">
+        <label for="mode">计算模式：</label>
+        <select id="mode">
+          <option value="diff">差额模式：待支付 = 有效销售金额 ×（总佣金率 − 表格佣金率）</option>
+          <option value="unified">统一结算模式：待支付 = 有效销售金额 × 统一佣金率</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="rateRow" id="rowDiff">
+      <div class="rateItem">
+        <label for="rateTotal">总佣金率：</label>
+        <input type="number" id="rateTotal" value="30" step="0.01" min="0" max="100">
+        <span>%</span>
+      </div>
+      <div class="rateItem">
+        <label for="ratePay">待支付公式中的总佣金率：</label>
+        <input type="number" id="ratePay" value="30" step="0.01" min="0" max="100">
+        <span>%</span>
+      </div>
+      <div class="hint">待支付佣金 = 有效销售金额 ×（待支付公式总佣金率 − 表格佣金率）</div>
+    </div>
+
+    <div class="rateRow" id="rowUnified" style="display:none">
+      <div class="rateItem">
+        <label for="rateUnified">统一结算佣金率：</label>
+        <input type="number" id="rateUnified" value="15" step="0.01" min="0" max="100">
+        <span>%</span>
+      </div>
+      <div class="hint">待支付佣金 = 有效销售金额 × 统一结算佣金率（不再使用表格佣金率差额）</div>
+    </div>
+
+    <div style="margin-top:14px">
+      <button id="runBtn" disabled>开始对比</button>
+      <button class="sec" id="expAll" disabled>导出汇总CSV</button>
+      <button class="sec" id="expDiff" disabled>导出差异CSV</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card" id="statCard" style="display:none">
+    <div class="stats" id="stats"></div>
+    <div class="note" style="margin-top:10px">
+      说明：金额差异 = 第一表有效销售金额 − 第二表有效销售金额；佣金率差异 = 第一表佣金率 − 第二表佣金率；
+      待支付佣金差异 = 第一表待支付佣金 − 第二表待支付佣金。
+      金额差异 ≤ 0.01、佣金率差异 ≤ 0.01% 视为无差异。
+    </div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none">
+    <div class="tabs">
+      <div class="tab active" data-tab="diff">差异订单</div>
+      <div class="tab" data-tab="all">全部对比</div>
+      <span style="margin-left:auto;align-self:center;color:#666" id="countInfo"></span>
+    </div>
+    <div class="scroll"><table id="outTable"><thead></thead><tbody></tbody></table></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // 检查 xlsx.full.min.js 是否加载成功
+  if(typeof XLSX === 'undefined'){
+    document.getElementById('libErr').style.display = 'block';
+    document.getElementById('runBtn').disabled = true;
+    return;
+  }
+
+  const $ = id => document.getElementById(id);
+  let allRows = [];
+  let diffRows = [];
+  let curTab = 'diff';
+
+  /* ---------- 工具函数 ---------- */
+  function round2(n){ return Math.round((n + Number.EPSILON) * 100) / 100; }
+  function toNum(v){
+    if(v === null || v === undefined || v === '') return 0;
+    if(typeof v === 'number') return isFinite(v) ? v : 0;
+    const s = String(v).replace(/[,\s￥¥]/g, '');
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  }
+  function parseRate(v){
+    if(v === null || v === undefined || v === '') return NaN;
+    if(typeof v === 'number') return v > 1 ? v / 100 : v;
+    let s = String(v).trim();
+    if(!s) return NaN;
+    if(s.endsWith('%')) return parseFloat(s) / 100;
+    const n = parseFloat(s.replace(/[,\s]/g,''));
+    if(isNaN(n)) return NaN;
+    return n > 1 ? n / 100 : n;
+  }
+  function fmtMoney(n){
+    if(n === null || n === undefined || isNaN(n)) return '';
+    return round2(n).toFixed(2);
+  }
+  function fmtRate(r){
+    if(r === null || r === undefined || isNaN(r)) return '';
+    return (r * 100).toFixed(2) + '%';
+  }
+  function csvEscape(v){
+    const s = (v === null || v === undefined) ? '' : String(v);
+    if(/[",\n\r]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+    return s;
+  }
+  function downloadCSV(filename, headers, rows){
+    const lines = [headers.map(csvEscape).join(',')];
+    for(const r of rows) lines.push(r.map(csvEscape).join(','));
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+  }
+  function showMsg(t){
+    const m = $('msg');
+    m.style.display = t ? 'block' : 'none';
+    m.textContent = t || '';
+  }
+  function readWorkbook(file){
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = e => {
+        try {
+          const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+          resolve(wb);
+        } catch(err){ reject(err); }
+      };
+      fr.onerror = () => reject(new Error('文件读取失败'));
+      fr.readAsArrayBuffer(file);
+    });
+  }
+  function pickSheet(wb, preferred){
+    if(wb.SheetNames.includes(preferred)) return wb.Sheets[preferred];
+    return wb.Sheets[wb.SheetNames[0]];
+  }
+  function sheetToJson(ws){
+    return XLSX.utils.sheet_to_json(ws, {defval: null, raw: true});
+  }
+  function colVal(row, names){
+    for(const n of names){
+      if(Object.prototype.hasOwnProperty.call(row, n)) return row[n];
+    }
+    const norm = s => String(s).replace(/[\s（）()【】\[\]]/g,'');
+    const keys = Object.keys(row);
+    for(const n of names){
+      const t = norm(n);
+      for(const k of keys){
+        if(norm(k) === t) return row[k];
+      }
+    }
+    return null;
+  }
+
+  /* ---------- 表一解析 ---------- */
+  function buildMap1(rows){
+    const map = new Map();
+    for(const r of rows){
+      const oid = String(colVal(r, ['订单ID','订单id','订单Id']) ?? '').trim();
+      if(!oid || oid === '合计') continue;
+      const sid = String(colVal(r, ['规格ID','规格id']) ?? '').trim();
+      const key = oid + '\u0001' + sid;
+
+      const amount = toNum(colVal(r, ['有效销售金额（计佣金额）','有效销售金额(计佣金额)','有效销售金额']));
+      const rate = parseRate(colVal(r, ['佣金率']));
+      const status = String(colVal(r, ['订单状态']) ?? '').trim();
+      const name = String(colVal(r, ['规格名称','商品名称']) ?? '').trim();
+
+      if(!map.has(key)){
+        map.set(key, {orderId: oid, specId: sid, amount: amount, rate: rate, status: status, name: name});
+      } else {
+        const o = map.get(key);
+        o.amount += amount;
+        if(isNaN(o.rate) && !isNaN(rate)) o.rate = rate;
+        if(!o.name && name) o.name = name;
+        if(!o.status && status) o.status = status;
+      }
+    }
+    return map;
+  }
+
+  /* ---------- 表二解析 ---------- */
+  function buildMap2(rows){
+    const map = new Map();
+    for(const r of rows){
+      const oid = String(colVal(r, ['订单ID','订单id','订单Id']) ?? '').trim();
+      if(!oid || oid === '合计') continue;
+      const sid = String(colVal(r, ['规格ID','规格id']) ?? '').trim();
+      const key = oid + '\u0001' + sid;
+
+      const amount = toNum(colVal(r, ['有效销售金额']));
+      const rate = parseRate(colVal(r, ['佣金率']));
+      const status = String(colVal(r, ['订单状态']) ?? '').trim();
+      const name = String(colVal(r, ['商品名称','规格名称']) ?? '').trim();
+
+      if(!map.has(key)){
+        map.set(key, {orderId: oid, specId: sid, amount: amount, rate: rate, status: status, name: name});
+      } else {
+        const o = map.get(key);
+        o.amount += amount;
+        if(isNaN(o.rate) && !isNaN(rate)) o.rate = rate;
+        if(!o.name && name) o.name = name;
+        if(!o.status && status) o.status = status;
+      }
+    }
+    return map;
+  }
+
+  /* ---------- 状态映射 ---------- */
+  function mapStatus(s){
+    if(s === null || s === undefined) return '';
+    const t = String(s).trim();
+    if(t === '已取消' || t === '部分退款') return '已退款';
+    return t;
+  }
+
+  /* ---------- 核心对比 ---------- */
+  function compare(map1, map2, cfg){
+    const {mode, rateTotal, ratePayBase, rateUnified} = cfg;
+    const keys = new Set([...map1.keys(), ...map2.keys()]);
+    const result = [];
+
+    for(const key of keys){
+      const a = map1.get(key) || null;
+      const b = map2.get(key) || null;
+
+      const orderId = a ? a.orderId : b.orderId;
+      const specId  = a ? a.specId  : b.specId;
+      const name    = (a && a.name) ? a.name : (b ? b.name : '');
+
+      const aAmt  = a ? a.amount : null;
+      const bAmt  = b ? b.amount : null;
+      const aRate = a ? a.rate : NaN;
+      const bRate = b ? b.rate : NaN;
+
+      const aAmtV = aAmt === null ? 0 : aAmt;
+      const bAmtV = bAmt === null ? 0 : bAmt;
+
+      let aPay, bPay, aTotal, bTotal;
+
+      if(mode === 'unified'){
+        aPay = aAmtV * rateUnified;
+        bPay = bAmtV * rateUnified;
+        aTotal = aPay;
+        bTotal = bPay;
+      } else {
+        aPay = (!a || isNaN(aRate)) ? 0 : aAmtV * (ratePayBase - aRate);
+        bPay = (!b || isNaN(bRate)) ? 0 : bAmtV * (ratePayBase - bRate);
+        aTotal = aAmtV * rateTotal;
+        bTotal = bAmtV * rateTotal;
+      }
+
+      const amtDiff   = round2(aAmtV - bAmtV);
+      const rateDiff  = (isNaN(aRate) && isNaN(bRate)) ? 0 : ((isNaN(aRate)?0:aRate) - (isNaN(bRate)?0:bRate));
+      const payDiff   = round2(aPay - bPay);
+      const totalDiff = round2(aTotal - bTotal);
+
+      const aStatusRaw = a ? a.status : '';
+      const bStatusRaw = b ? b.status : '';
+      const aStatusMap = mapStatus(aStatusRaw);
+      const bStatusMap = mapStatus(bStatusRaw);
+
+      const reasons = [];
+      if(a && !b) reasons.push('仅第一表有');
+      else if(!a && b) reasons.push('仅第二表有');
+      else {
+        if(Math.abs(amtDiff) > 0.01) reasons.push('有效销售金额不一致');
+        if(Math.abs(rateDiff) > 0.0001) reasons.push('佣金率不一致');
+        if(Math.abs(payDiff) > 0.01) reasons.push('佣金金额不一致');
+        if(aStatusMap !== bStatusMap) reasons.push('订单状态不一致');
+      }
+
+      result.push({
+        orderId, specId, name,
+        aStatus: aStatusRaw, bStatus: bStatusRaw,
+        aAmt: a ? aAmtV : null, bAmt: b ? bAmtV : null, amtDiff,
+        aRate: a ? aRate : NaN, bRate: b ? bRate : NaN, rateDiff,
+        aPay, bPay, payDiff,
+        aTotal, bTotal, totalDiff,
+        reasons: reasons.join('；')
+      });
+    }
+    return result;
+  }
+
+  /* ---------- 渲染 ---------- */
+  const HEADERS = ['订单ID','规格ID','商品名称','第一表状态','第二表状态',
+    '第一表有效销售金额','第二表有效销售金额','金额差异',
+    '第一表佣金率','第二表佣金率','佣金率差异',
+    '第一表待支付佣金','第二表待支付佣金','待支付佣金差异',
+    '第一表总佣金','第二表总佣金','总佣金差异','差异原因'];
+
+  function renderTable(rows){
+    const thead = $('outTable').querySelector('thead');
+    const tbody = $('outTable').querySelector('tbody');
+    thead.innerHTML = '<tr>' + HEADERS.map((h,i)=>{
+      const isNum = i >= 5 && i <= 16;
+      return `<th class="${isNum?'num':''}">${h}</th>`;
+    }).join('') + '</tr>';
+
+    const frag = document.createDocumentFragment();
+    for(const r of rows){
+      const tr = document.createElement('tr');
+      const cls = v => v > 0.01 ? 'pos' : (v < -0.01 ? 'neg' : '');
+      tr.innerHTML = [
+        `<td>${r.orderId}</td>`,
+        `<td>${r.specId}</td>`,
+        `<td title="${(r.name||'').replace(/"/g,'&quot;')}">${(r.name||'').slice(0,40)}</td>`,
+        `<td>${r.aStatus||''}</td>`,
+        `<td>${r.bStatus||''}</td>`,
+        `<td class="num">${r.aAmt===null?'—':fmtMoney(r.aAmt)}</td>`,
+        `<td class="num">${r.bAmt===null?'—':fmtMoney(r.bAmt)}</td>`,
+        `<td class="num ${cls(r.amtDiff)}">${fmtMoney(r.amtDiff)}</td>`,
+        `<td class="num">${isNaN(r.aRate)?'—':fmtRate(r.aRate)}</td>`,
+        `<td class="num">${isNaN(r.bRate)?'—':fmtRate(r.bRate)}</td>`,
+        `<td class="num ${Math.abs(r.rateDiff)>0.0001?'neg':''}">${isNaN(r.rateDiff)?'—':(r.rateDiff*100).toFixed(2)+'%'}</td>`,
+        `<td class="num">${fmtMoney(r.aPay)}</td>`,
+        `<td class="num">${fmtMoney(r.bPay)}</td>`,
+        `<td class="num ${cls(r.payDiff)}">${fmtMoney(r.payDiff)}</td>`,
+        `<td class="num">${fmtMoney(r.aTotal)}</td>`,
+        `<td class="num">${fmtMoney(r.bTotal)}</td>`,
+        `<td class="num ${cls(r.totalDiff)}">${fmtMoney(r.totalDiff)}</td>`,
+        `<td>${r.reasons||''}</td>`
+      ].join('');
+      frag.appendChild(tr);
+    }
+    tbody.innerHTML = '';
+    tbody.appendChild(frag);
+    $('countInfo').textContent = curTab === 'diff'
+      ? `差异 ${rows.length} 行`
+      : `共 ${rows.length} 行`;
+  }
+
+  function renderStats(){
+    const aAmt = allRows.reduce((s,r)=> s + (r.aAmt||0), 0);
+    const bAmt = allRows.reduce((s,r)=> s + (r.bAmt||0), 0);
+    const aPay = allRows.reduce((s,r)=> s + (r.aPay||0), 0);
+    const bPay = allRows.reduce((s,r)=> s + (r.bPay||0), 0);
+    const aTot = allRows.reduce((s,r)=> s + (r.aTotal||0), 0);
+    const bTot = allRows.reduce((s,r)=> s + (r.bTotal||0), 0);
+
+    const cls = v => v > 0.01 ? 'pos' : (v < -0.01 ? 'neg' : '');
+    $('stats').innerHTML = `
+      <div class="stat"><div class="k">第一表有效销售金额合计</div><div class="v">${fmtMoney(aAmt)}</div></div>
+      <div class="stat"><div class="k">第二表有效销售金额合计</div><div class="v">${fmtMoney(bAmt)}</div></div>
+      <div class="stat"><div class="k">有效销售金额总差异</div><div class="v ${cls(aAmt-bAmt)}">${fmtMoney(aAmt-bAmt)}</div></div>
+      <div class="stat"><div class="k">第一表待支付佣金合计</div><div class="v">${fmtMoney(aPay)}</div></div>
+      <div class="stat"><div class="k">第二表待支付佣金合计</div><div class="v">${fmtMoney(bPay)}</div></div>
+      <div class="stat"><div class="k">待支付佣金总差异</div><div class="v ${cls(aPay-bPay)}">${fmtMoney(aPay-bPay)}</div></div>
+      <div class="stat"><div class="k">第一表总佣金合计</div><div class="v">${fmtMoney(aTot)}</div></div>
+      <div class="stat"><div class="k">第二表总佣金合计</div><div class="v">${fmtMoney(bTot)}</div></div>
+      <div class="stat"><div class="k">差异订单行数</div><div class="v">${diffRows.length}</div></div>
+    `;
+    $('statCard').style.display = 'block';
+  }
+
+  /* ---------- 模式切换 ---------- */
+  $('mode').addEventListener('change', () => {
+    const m = $('mode').value;
+    $('rowDiff').style.display = (m === 'diff') ? 'flex' : 'none';
+    $('rowUnified').style.display = (m === 'unified') ? 'flex' : 'none';
+  });
+
+  /* ---------- 主流程 ---------- */
+  let wb1 = null, wb2 = null;
+
+  $('file1').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if(!f) return;
+    showMsg('正在读取表一…');
+    try{
+      wb1 = await readWorkbook(f);
+      showMsg('表一已读取，Sheet：' + wb1.SheetNames.join(' / '));
+    }catch(err){ showMsg('表一读取失败：' + err.message); wb1 = null; }
+    checkReady();
+  });
+  $('file2').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if(!f) return;
+    showMsg('正在读取表二…');
+    try{
+      wb2 = await readWorkbook(f);
+      showMsg('表二已读取，Sheet：' + wb2.SheetNames.join(' / '));
+    }catch(err){ showMsg('表二读取失败：' + err.message); wb2 = null; }
+    checkReady();
+  });
+  function checkReady(){
+    $('runBtn').disabled = !(wb1 && wb2);
+  }
+
+  function getCfg(){
+    const mode = $('mode').value;
+    const rt = parseFloat($('rateTotal').value);
+    const rp = parseFloat($('ratePay').value);
+    const ru = parseFloat($('rateUnified').value);
+    return {
+      mode,
+      rateTotal: isNaN(rt) ? 0.30 : rt / 100,
+      ratePayBase: isNaN(rp) ? 0.30 : rp / 100,
+      rateUnified: isNaN(ru) ? 0.15 : ru / 100
+    };
+  }
+
+  $('runBtn').addEventListener('click', () => {
+    try{
+      showMsg('正在计算…');
+      const cfg = getCfg();
+      const rows1 = sheetToJson(pickSheet(wb1, '订单信息'));
+      const rows2 = sheetToJson(pickSheet(wb2, '订单明细'));
+
+      const map1 = buildMap1(rows1);
+      const map2 = buildMap2(rows2);
+
+      allRows = compare(map1, map2, cfg);
+      allRows.sort((x,y) => {
+        const ax = x.reasons ? 1 : 0, ay = y.reasons ? 1 : 0;
+        if(ax !== ay) return ay - ax;
+        return String(x.orderId).localeCompare(String(y.orderId));
+      });
+      diffRows = allRows.filter(r => r.reasons);
+
+      curTab = 'diff';
+      document.querySelectorAll('.tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.tab === 'diff'));
+      renderStats();
+      renderTable(diffRows);
+      $('resultCard').style.display = 'block';
+      $('expAll').disabled = false;
+      $('expDiff').disabled = false;
+
+      let modeDesc;
+      if(cfg.mode === 'unified'){
+        modeDesc = `统一结算模式，统一佣金率 ${(cfg.rateUnified*100).toFixed(2)}%`;
+      } else {
+        modeDesc = `差额模式，总佣金率 ${(cfg.rateTotal*100).toFixed(2)}%，待支付公式总佣金率 ${(cfg.ratePayBase*100).toFixed(2)}%`;
+      }
+      showMsg(`计算完成。${modeDesc}。表一 ${map1.size} 组，表二 ${map2.size} 组，差异 ${diffRows.length} 行。`);
+    }catch(err){
+      console.error(err);
+      showMsg('计算失败：' + err.message);
+    }
+  });
+
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      curTab = t.dataset.tab;
+      document.querySelectorAll('.tab').forEach(x =>
+        x.classList.toggle('active', x.dataset.tab === curTab));
+      renderTable(curTab === 'diff' ? diffRows : allRows);
+    });
+  });
+
+  /* ---------- 导出 ---------- */
+  function rowToArr(r){
+    return [
+      r.orderId, r.specId, r.name,
+      r.aStatus, r.bStatus,
+      r.aAmt===null?'':round2(r.aAmt).toFixed(2),
+      r.bAmt===null?'':round2(r.bAmt).toFixed(2),
+      round2(r.amtDiff).toFixed(2),
+      isNaN(r.aRate)?'':fmtRate(r.aRate),
+      isNaN(r.bRate)?'':fmtRate(r.bRate),
+      isNaN(r.rateDiff)?'':(r.rateDiff*100).toFixed(2)+'%',
+      round2(r.aPay).toFixed(2),
+      round2(r.bPay).toFixed(2),
+      round2(r.payDiff).toFixed(2),
+      round2(r.aTotal).toFixed(2),
+      round2(r.bTotal).toFixed(2),
+      round2(r.totalDiff).toFixed(2),
+      r.reasons || ''
+    ];
+  }
+
+  $('expDiff').addEventListener('click', () => {
+    if(!diffRows.length){ showMsg('没有差异行可导出。'); return; }
+    downloadCSV('订单佣金差异对比_差异订单.csv', HEADERS, diffRows.map(rowToArr));
+  });
+  $('expAll').addEventListener('click', () => {
+    if(!allRows.length){ showMsg('没有数据可导出。'); return; }
+    downloadCSV('订单佣金差异对比_汇总对比.csv', HEADERS, allRows.map(rowToArr));
+  });
+})();
+</script>
+</body>
+</html>
